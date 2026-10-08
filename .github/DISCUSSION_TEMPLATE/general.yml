@@ -1,0 +1,21 @@
+labels: ["general"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Welcome to Proxima Support.
+
+        Use this space to connect with the team and discuss anything related to Proxima and virtualization.
+
+        To help us assist you, consider sharing:
+        - How you are using Proxima (e.g., team environment, development, production)
+        - Your current Proxmox VE setup
+        - What features you are most interested in
+  - type: textarea
+    id: introduction
+    attributes:
+      label: Introduction or Topic Details
+      description: Share your thoughts, introduction, or general topic here.
+      placeholder: Tell us about your setup or start a conversation...
+    validations:
+      required: true
