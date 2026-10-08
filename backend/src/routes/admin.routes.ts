@@ -82,9 +82,13 @@ import {
   runScheduledBackups,
 } from '../services/matestate.service.js';
 import type { AuthRequest } from '../types/index.js';
+import clustersRoutes from './clusters.routes.js';
+import { upsertDefaultClusterFromConfig } from '../services/proxmox-cluster.service.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = Router();
+
+router.use('/clusters', clustersRoutes);
 
 router.use(requireAuth, requireAdmin, enforceMfaSetup);
 
@@ -497,6 +501,12 @@ router.put('/settings/proxmox', async (req: Request, res: Response) => {
   if (tokenSecret && tokenSecret.trim().length > 0) {
     await setConfig('proxmox_token_secret', tokenSecret, true);
   }
+  await upsertDefaultClusterFromConfig({
+    host,
+    tokenId,
+    tokenSecret: tokenSecret?.trim() ? tokenSecret : undefined,
+    verifySsl,
+  });
 
   res.json({ success: true });
 });
@@ -758,21 +768,16 @@ router.delete('/isolation/enforce', async (_req: Request, res: Response) => {
 // signup order). Used by the admin monitor dashboard.
 
 router.get('/all-vms', async (req: Request, res: Response) => {
-  const adminUser = (req as any).user;
-  if (adminUser?.id) {
-    try {
-      await syncExistingProxmoxInfrastructure(adminUser.id);
-    } catch {
-      // Best effort auto sync of Proxmox cluster resources
-    }
-  }
+  const refreshIps = req.query['refreshIps'] === 'true' || req.query['refreshIps'] === '1';
 
   const users = await prisma.user.findMany({
     include: { vms: { orderBy: { createdAt: 'desc' } } },
     orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
   });
-  // Refresh guest IPs (running VMs) so the owner-grouped list shows live addresses.
-  await refreshVmIps(users.flatMap((u) => u.vms));
+  const allVms = users.flatMap((u) => u.vms);
+  if (refreshIps && allVms.length > 0) {
+    await refreshVmIps(allVms);
+  }
   res.json(
     users.map((u) => ({
       id: u.id,

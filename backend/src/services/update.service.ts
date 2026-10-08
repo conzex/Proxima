@@ -22,7 +22,7 @@ import axios from 'axios';
 
 /** owner/repo to check releases against (a fork can override via env). */
 export function updateRepo(): string {
-  return process.env['UPDATE_REPO'] || 'conzex-global/proxima';
+  return process.env['UPDATE_REPO'] || 'conzex/Proxima';
 }
 
 /** The running app version. `APP_VERSION` (baked at build) wins; else read it

@@ -1,8 +1,11 @@
 {
   "name": "proxima",
   "private": true,
+  "version": "1.2.0",
   "scripts": {
-    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "version:sync": "node scripts/sync-version.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
+    "build": "npm run version:sync && npm --prefix backend run build && npm --prefix frontend run build",
     "start": "npx pm2 start deploy/pm2.config.js",
     "start:backend": "node backend/dist/index.js",
     "start:frontend": "npm --prefix frontend start",

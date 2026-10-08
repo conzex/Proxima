@@ -54,6 +54,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { BroadcastCard } from "@/components/admin/broadcast-card";
+import { ProxmoxClustersCard } from "@/components/admin/proxmox-clusters-card";
 
 // Sentinel for "let the backend auto-pick the first backup-capable storage".
 const BACKUP_AUTO = "__auto__";
@@ -503,9 +504,12 @@ export default function SettingsPage() {
 
         {/* ── Proxmox: cluster connection, VM defaults, tenant isolation ───────── */}
         <TabsContent value="proxmox" className="pt-6">
+          <div className="mb-6">
+            <ProxmoxClustersCard />
+          </div>
           <Card className="mb-6">
             <CardHeader>
-              <CardTitle>Proxmox connection</CardTitle>
+              <CardTitle>Default cluster connection</CardTitle>
               <CardDescription>
                 Update the API endpoint or token. Leave the secret blank to keep the current one.
               </CardDescription>

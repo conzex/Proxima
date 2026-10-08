@@ -15,6 +15,8 @@ const securityHeaders = [
 const apiProxyTarget = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:4000";
 
 const nextConfig: NextConfig = {
+  // Hide the Next.js devtools FAB (`.devtools-indicator`); Proxima is a product UI.
+  devIndicators: false,
   // Produce a self-contained .next/standalone build for a small production image.
   output: "standalone",
   // This `frontend/` directory is the Next app root. Pin it so Turbopack doesn't

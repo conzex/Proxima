@@ -134,3 +134,32 @@
   0% { transform: translateX(-120%); }
   100% { transform: translateX(320%); }
 }
+
+/* Mobile nav drawer — native <dialog> (no JS portal). */
+.mobile-nav-dialog {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  width: min(16rem, 80vw);
+  max-width: 80vw;
+  height: 100%;
+  max-height: none;
+  background: transparent;
+  overflow: hidden;
+}
+.mobile-nav-dialog::backdrop {
+  background: rgb(0 0 0 / 0.5);
+}
+.mobile-nav-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Next.js devtools FAB — disabled via devIndicators:false; hide if it still mounts. */
+.devtools-indicator,
+button.devtools-indicator {
+  display: none !important;
+  pointer-events: none !important;
+}

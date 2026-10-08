@@ -26,6 +26,7 @@ import { handleConsoleUpgrade } from './routes/console.routes.js';
 import { handleIdeUpgrade } from './services/ide-proxy.service.js';
 import { startScheduler } from './services/scheduler.service.js';
 import { reconcileInterruptedPassthroughApplies } from './services/passthrough-request.service.js';
+import { ensureLegacyClusterMigrated } from './services/proxmox-cluster.service.js';
 
 const PORT = parseInt(process.env.PORT || '4000', 10);
 // Default to 0.0.0.0 so the port is reachable by the reverse proxy and sibling
@@ -65,6 +66,10 @@ try {
   logger.error({ err }, 'module loading failed - refusing to start (unset PROXIMA_MODULES to boot without modules)');
   process.exit(1);
 }
+
+void ensureLegacyClusterMigrated().catch((err) =>
+  logger.error({ err }, 'proxmox cluster legacy migration failed'),
+);
 
 server.listen(PORT, BIND_ADDR, () => {
   logger.info({ port: PORT, bind: BIND_ADDR, env: process.env.NODE_ENV || 'development' }, `Proxima API running on http://${BIND_ADDR}:${PORT}`);

@@ -471,20 +471,21 @@ flowchart TD
 
 ### 14.1 Publishing a release (so there's a "Latest" to find)
 
-The check compares `backend/package.json`'s `version` against the latest release tag.
+The check compares `backend/package.json`'s `version` (synced from root `VERSION`) against the latest release tag.
 To cut one:
 
 ```bash
-# bump backend/package.json "version" (e.g. 0.2.0), then:
-git commit -am "release: v0.2.0"
-git tag v0.2.0
+npm run version:bump   # Proxima scheme: patch 0–9, minor rolls at 9, major at minor 11
+git add VERSION backend/package.json frontend/package.json ide/autostart/package.json
+git commit -m "release: v$(cat VERSION)"
+git tag "v$(cat VERSION)"
 git push origin main --tags
 ```
 
 `.github/workflows/release.yml` turns the pushed `v*` tag into a published Release with
 auto-generated notes. (Manual alternative: `gh release create v0.2.0 --generate-notes`.)
 
-> Set `UPDATE_REPO` in `.env` if you track a fork instead of the upstream repo.
+> Default release checks use `conzex/Proxima`. Set `UPDATE_REPO` in `.env` only if you mirror releases elsewhere.
 
 ### 14.2 Manual update (no host changes needed)
 

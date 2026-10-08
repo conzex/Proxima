@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
 import { isSetupComplete, getConfig, setConfig } from './config.service.js';
 import { createSession } from './auth.service.js';
+import { upsertDefaultClusterFromConfig, getDefaultClusterId } from './proxmox-cluster.service.js';
 import {
   getClient,
   getVersion,
@@ -74,6 +75,12 @@ export async function saveProxmoxConfig(data: {
   await setConfig('proxmox_token_id', data.tokenId);
   await setConfig('proxmox_token_secret', data.tokenSecret, true);
   await setConfig('proxmox_verify_ssl', String(data.verifySsl));
+  await upsertDefaultClusterFromConfig({
+    host,
+    tokenId: data.tokenId,
+    tokenSecret: data.tokenSecret,
+    verifySsl: data.verifySsl,
+  });
 }
 
 export interface ProxmoxConnectionResult {
@@ -122,8 +129,8 @@ const OPERATIONAL_PRIVILEGES: ReadonlyArray<readonly [string, string]> = [
  * that the two read privileges everything else depends on return real objects. Every
  * failure names the missing privilege and the command that grants it.
  */
-export async function testProxmoxConnection(): Promise<ProxmoxConnectionResult> {
-  const client = await getClient();
+export async function testProxmoxConnection(clusterId?: string): Promise<ProxmoxConnectionResult> {
+  const client = await getClient(clusterId);
   // /version first and alone: if the token cannot authenticate at all, that is the
   // finding, and reporting a permission problem on top of it would be noise.
   const version = await getVersion(client);
@@ -211,13 +218,13 @@ export async function testProxmoxConnection(): Promise<ProxmoxConnectionResult> 
 
 // ─── Step 3: Fetch available Proxmox resources ────────────────
 
-export async function getProxmoxResources(): Promise<{
+export async function getProxmoxResources(clusterId?: string): Promise<{
   storages: Array<{ name: string; type: string }>;
   bridges: Array<{ name: string }>;
   isoStorages: Array<{ name: string; type: string }>;
   backupStorages: Array<{ name: string; type: string }>;
 }> {
-  const client = await getClient();
+  const client = await getClient(clusterId);
   const [storages, bridges] = await Promise.all([
     getStorages(client),
     getBridges(undefined, client),
@@ -252,6 +259,18 @@ export async function saveDefaults(data: {
   // Optional: which storage MateState backups land on. Empty = let the backend
   // auto-pick the first backup-capable storage (getBackupStorage).
   if (data.backupStorage !== undefined) await setConfig('backup_storage', data.backupStorage);
+  try {
+    const clusterId = await getDefaultClusterId();
+    const { updateCluster } = await import('./proxmox-cluster.service.js');
+    await updateCluster(clusterId, {
+      defaultStorage: data.storage,
+      defaultBridge: data.bridge,
+      isoStorage: data.isoStorage,
+      backupStorage: data.backupStorage ?? null,
+    });
+  } catch {
+    /* cluster row not ready yet */
+  }
 }
 
 // ─── Step 4: Finalize setup ───────────────────────────────────

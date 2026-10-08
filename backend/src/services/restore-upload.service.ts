@@ -186,9 +186,11 @@ export async function restoreFromUpload(
     );
     const vmid = await pve.getNextVmId(client);
 
+    const clusterId = await (await import('./proxmox-cluster.service.js')).getDefaultClusterId();
     const vm = await prisma.virtualMachine.create({
       data: {
         userId: user.id,
+        clusterId,
         proxmoxVmId: vmid,
         proxmoxNode: node,
         name: input.name,

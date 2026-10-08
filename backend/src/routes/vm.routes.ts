@@ -147,16 +147,24 @@ export function rejectIfSizeLocked(
 router.get('/', async (req: Request, res: Response) => {
   const user = (req as AuthRequest).user;
   let vms = await listVms(user);
-  if (user.role === 'admin' && (vms.length === 0 || req.query['sync'] === 'true')) {
+  const wantSync = req.query['sync'] === 'true' || req.query['sync'] === '1';
+  if (user.role === 'admin' && wantSync) {
     try {
       await syncExistingProxmoxInfrastructure(user.id);
       vms = await listVms(user);
     } catch {
-      // Best effort discovery
+      // Explicit sync only — failures leave the DB-backed list.
     }
   }
-  const annotated = await annotateAccess(await refreshVmIps(vms), user);
-  res.json(annotated);
+  const refreshIps = req.query['refreshIps'] === 'true' || req.query['refreshIps'] === '1';
+  const listed = refreshIps ? await refreshVmIps(vms) : vms;
+  const annotated = await annotateAccess(listed, user);
+  res.json(
+    annotated.map(({ cluster, ...vm }) => ({
+      ...vm,
+      clusterName: cluster.name,
+    })),
+  );
 });
 
 // ─── GET /api/vms/live-usage ──────────────────────────────────

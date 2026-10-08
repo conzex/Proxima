@@ -1,7 +1,7 @@
 {
   "name": "proxima-backend",
-  "version": "1.0.0",
-  "description": "Proxima \u2014 Express API backend for Proxmox VE cloud dashboard",
+  "version": "1.2.0",
+  "description": "Proxima — Express API backend for Proxmox VE cloud dashboard",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",

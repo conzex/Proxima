@@ -2,6 +2,7 @@ import type { Template, VirtualMachine } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { getConfig, setConfig } from './config.service.js';
 import * as pve from './proxmox.service.js';
+import { getDefaultClusterId } from './proxmox-cluster.service.js';
 
 /** Published templates shown in the user-facing Template Store. */
 export function listPublished(): Promise<Template[]> {
@@ -56,10 +57,12 @@ export interface RegisterTemplateInput {
    * an update never overwrites a known value with it.
    */
   guestAgent?: boolean | null;
+  clusterId?: string;
 }
 
 /** Register a Proxmox template into the store (or update an existing registration). */
 export async function register(input: RegisterTemplateInput): Promise<Template> {
+  const clusterId = input.clusterId ?? (await getDefaultClusterId());
   // Trust the disk size from Proxmox if the caller didn't supply one.
   let diskGb = input.diskGb ?? 0;
   if (!diskGb) {
@@ -84,7 +87,7 @@ export async function register(input: RegisterTemplateInput): Promise<Template> 
   }
 
   return prisma.template.upsert({
-    where: { proxmoxVmId: input.proxmoxVmId },
+    where: { clusterId_proxmoxVmId: { clusterId, proxmoxVmId: input.proxmoxVmId } },
     update: {
       name: input.name,
       description: input.description ?? null,
@@ -102,6 +105,7 @@ export async function register(input: RegisterTemplateInput): Promise<Template> 
       ...(input.guestAgent !== undefined ? { guestAgent: input.guestAgent } : {}),
     },
     create: {
+      clusterId,
       name: input.name,
       description: input.description ?? null,
       os: input.os ?? null,

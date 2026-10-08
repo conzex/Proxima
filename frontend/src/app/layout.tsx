@@ -14,6 +14,15 @@ export const metadata: Metadata = {
     template: `%s · ${siteConfig.name}`,
   },
   description: siteConfig.description,
+  authors: [{ name: siteConfig.name }],
+  creator: siteConfig.name,
+  publisher: siteConfig.name,
+  alternates: { canonical: "/" },
+  icons: {
+    icon: [{ url: "/favicon.ico" }],
+    shortcut: "/favicon.ico",
+    apple: "/icon-192.png",
+  },
   robots: {
     index: false,
     follow: false,
@@ -29,9 +38,14 @@ export const metadata: Metadata = {
     locale: "en_US",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: documentTitle,
     description: siteConfig.shortDescription,
+  },
+  appleWebApp: {
+    capable: true,
+    title: siteConfig.name,
+    statusBarStyle: "black-translucent",
   },
   formatDetection: { telephone: false, email: false, address: false },
 };

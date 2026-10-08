@@ -8,6 +8,7 @@ import { notify } from './notify.service.js';
 import { isMailConfigured, sendMail } from './mail.service.js';
 import { vmMaintenanceEmail } from '../lib/email-templates.js';
 import * as pve from './proxmox.service.js';
+import { getDefaultClusterId, listClusters } from './proxmox-cluster.service.js';
 import { getOfferedFeatureIds, getBaseFeatureIds } from './template.service.js';
 import { isValidPublicKey } from './ssh-key.service.js';
 import { ALL_CAPS, CAPS_BY_ROLE, normalizeShareRole, type ShareRole, type VmCap } from './vm-share.service.js';
@@ -47,6 +48,7 @@ export interface CreateVmInput {
   /** Admin-only: the owning tenant may operate but not RESIZE this VM. */
   adminManaged?: boolean;
   proxmoxVmId?: number;
+  clusterId?: string;
 }
 
 /** Check the requested resources against the user's remaining quota. */
@@ -112,7 +114,8 @@ export async function resolveCreateTarget(
 export async function createVm(user: User, input: CreateVmInput): Promise<VirtualMachine> {
   await assertWithinQuota(user, input);
 
-  const client = await pve.getClient();
+  const clusterId = input.clusterId ?? (await getDefaultClusterId());
+  const client = await pve.getClient(clusterId);
   const [storage, bridge, isoStorage, isolationCfg] = await Promise.all([
     getConfig('default_storage'),
     getConfig('default_bridge'),
@@ -159,7 +162,9 @@ export async function createVm(user: User, input: CreateVmInput): Promise<Virtua
   }
   let vmid: number;
   if (input.proxmoxVmId) {
-    const existing = await prisma.virtualMachine.findFirst({ where: { proxmoxVmId: input.proxmoxVmId } });
+    const existing = await prisma.virtualMachine.findFirst({
+      where: { clusterId, proxmoxVmId: input.proxmoxVmId },
+    });
     if (existing) {
       throw new Error(`Proxmox VMID ${input.proxmoxVmId} is already in use by guest "${existing.name}".`);
     }
@@ -171,6 +176,7 @@ export async function createVm(user: User, input: CreateVmInput): Promise<Virtua
   const vm = await prisma.virtualMachine.create({
     data: {
       userId: user.id,
+      clusterId,
       proxmoxVmId: vmid,
       proxmoxNode: node,
       name: input.name,
@@ -237,6 +243,7 @@ export interface CreateContainerInput {
   ip?: string;
   gateway?: string;
   proxmoxVmId?: number;
+  clusterId?: string;
 }
 
 /** Guess a container's CPU architecture from its OS-template filename. */
@@ -263,7 +270,8 @@ export async function createContainer(user: User, input: CreateContainerInput): 
     adminManaged: input.adminManaged,
   });
 
-  const client = await pve.getClient();
+  const clusterId = input.clusterId ?? (await getDefaultClusterId());
+  const client = await pve.getClient(clusterId);
   const [storage, bridge, isolationCfg] = await Promise.all([
     getConfig('default_storage'),
     getConfig('default_bridge'),
@@ -305,7 +313,9 @@ export async function createContainer(user: User, input: CreateContainerInput): 
   }
   let vmid: number;
   if (input.proxmoxVmId) {
-    const existing = await prisma.virtualMachine.findFirst({ where: { proxmoxVmId: input.proxmoxVmId } });
+    const existing = await prisma.virtualMachine.findFirst({
+      where: { clusterId, proxmoxVmId: input.proxmoxVmId },
+    });
     if (existing) {
       throw new Error(`Proxmox VMID ${input.proxmoxVmId} is already in use by guest "${existing.name}".`);
     }
@@ -317,6 +327,7 @@ export async function createContainer(user: User, input: CreateContainerInput): 
   const vm = await prisma.virtualMachine.create({
     data: {
       userId: user.id,
+      clusterId,
       proxmoxVmId: vmid,
       proxmoxNode: node,
       type: 'lxc',
@@ -625,13 +636,15 @@ export async function deployFromTemplate(
     adminManaged: input.adminManaged,
   });
 
-  const client = await pve.getClient();
+  const client = await pve.getClient(template.clusterId);
   const isolate = (await getConfig('isolation_enabled')) !== 'false';
 
   const node = template.proxmoxNode; // linked clone stays on the template's node
   let vmid: number;
   if (input.proxmoxVmId) {
-    const existing = await prisma.virtualMachine.findFirst({ where: { proxmoxVmId: input.proxmoxVmId } });
+    const existing = await prisma.virtualMachine.findFirst({
+      where: { clusterId: template.clusterId, proxmoxVmId: input.proxmoxVmId },
+    });
     if (existing) {
       throw new Error(`Proxmox VMID ${input.proxmoxVmId} is already in use by guest "${existing.name}".`);
     }
@@ -643,6 +656,7 @@ export async function deployFromTemplate(
   const vm = await prisma.virtualMachine.create({
     data: {
       userId: user.id,
+      clusterId: template.clusterId,
       proxmoxVmId: vmid,
       proxmoxNode: node,
       name: input.name,
@@ -715,7 +729,7 @@ export async function duplicateVm(source: VirtualMachine, newName: string): Prom
   await assertOwnerAccessActive(source);
   if (kindOf(source) === 'lxc') throw new Error('Containers (LXC) can\'t be duplicated');
 
-  const client = await pve.getClient();
+  const client = await pve.getClient(source.clusterId);
   const current = await syncVmNode(source);
 
   const status = await pve.getVmStatus(current.proxmoxNode, current.proxmoxVmId, client).catch(() => null);
@@ -737,6 +751,7 @@ export async function duplicateVm(source: VirtualMachine, newName: string): Prom
   const vm = await prisma.virtualMachine.create({
     data: {
       userId: current.userId,
+      clusterId: current.clusterId,
       proxmoxVmId: vmid,
       proxmoxNode: node,
       name: newName,
@@ -843,11 +858,18 @@ export async function getViewableVm(vmId: string, user: { id: string; role: stri
 }
 
 /** List VMs the user owns OR has been shared (all VMs for admins). */
-export async function listVms(user: { id: string; role: string }): Promise<VirtualMachine[]> {
-  if (user.role === 'admin') return prisma.virtualMachine.findMany({ orderBy: { createdAt: 'desc' } });
+const vmListInclude = { cluster: { select: { name: true } } };
+
+export async function listVms(
+  user: { id: string; role: string },
+): Promise<Array<VirtualMachine & { cluster: { name: string } }>> {
+  if (user.role === 'admin') {
+    return prisma.virtualMachine.findMany({ include: vmListInclude, orderBy: { createdAt: 'desc' } });
+  }
   const shares = await prisma.vmShare.findMany({ where: { userId: user.id }, select: { vmId: true } });
   return prisma.virtualMachine.findMany({
     where: { OR: [{ userId: user.id }, { id: { in: shares.map((s) => s.vmId) } }] },
+    include: vmListInclude,
     orderBy: { createdAt: 'desc' },
   });
 }
@@ -911,7 +933,7 @@ export async function migrateVmToNode(
   // (The passthrough-approval flow migrates BEFORE it attaches, so this guard
   // never applies there; it protects generic admin/balancer moves.)
   if (vm.hasPassthrough) throw new Error('A VM with PCI/GPU passthrough can’t be migrated. Detach the device first.');
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
 
   const nodes = await pve.getNodes(client);
   if (!nodes.some((n) => n.node === targetNode)) throw new Error(`No such node "${targetNode}".`);
@@ -1063,7 +1085,7 @@ export async function resizeVm(
   await assertResizeWithinQuota(await quotaAccountFor(user, vm), vm, { cpu: targetCpu, ram: targetRam, storage: targetStorage });
 
   let current = await syncVmNode(vm);
-  const client = await pve.getClient();
+  const client = await pve.getClient(current.clusterId);
   const kind = kindOf(current);
 
   // Resolve the disk up-front so a missing/unresizable disk fails before we
@@ -1113,7 +1135,7 @@ export async function setPowerSchedule(
  */
 export async function syncVmNode(vm: VirtualMachine): Promise<VirtualMachine> {
   try {
-    const client = await pve.getClient();
+    const client = await pve.getClient(vm.clusterId);
     const res = await client.get<{ data: Array<{ type: string; vmid?: number; node?: string }> }>('/cluster/resources');
     const match = res.data.data.find(
       (r) => (r.type === 'qemu' || r.type === 'lxc') && r.vmid === vm.proxmoxVmId
@@ -1177,9 +1199,9 @@ export async function getVmWithLiveStatus(
 export async function refreshVmIps<T extends VirtualMachine>(vms: T[]): Promise<T[]> {
   const running = vms.filter((v) => v.status === 'running');
   if (running.length === 0) return vms;
-  const client = await pve.getClient();
   await Promise.all(
     running.map(async (vm) => {
+      const client = await pve.getClient(vm.clusterId);
       // LXC has no guest agent — Proxmox reads the container's IPs directly.
       const { ip, tailscaleIp } =
         kindOf(vm) === 'lxc'
@@ -1221,24 +1243,32 @@ export interface LiveUsage {
 export async function getLiveUsage(user: { id: string }): Promise<LiveUsage> {
   const vms = await prisma.virtualMachine.findMany({
     where: { userId: user.id },
-    select: { proxmoxVmId: true },
+    select: { proxmoxVmId: true, clusterId: true },
   });
-  const ids = new Set(vms.map((v) => v.proxmoxVmId));
   const empty: LiveUsage = { cpu: 0, mem: 0, maxMem: 0, running: 0 };
-  if (ids.size === 0) return empty;
+  if (vms.length === 0) return empty;
 
-  const client = await pve.getClient();
-  const res = await client.get<{
-    data: Array<{ type: string; vmid?: number; status?: string; cpu?: number; maxcpu?: number; mem?: number; maxmem?: number }>;
-  }>('/cluster/resources');
+  const byCluster = new Map<string, Set<number>>();
+  for (const v of vms) {
+    const set = byCluster.get(v.clusterId) ?? new Set<number>();
+    set.add(v.proxmoxVmId);
+    byCluster.set(v.clusterId, set);
+  }
 
   const usage = { ...empty };
-  for (const r of res.data.data) {
-    if ((r.type === 'qemu' || r.type === 'lxc') && r.vmid !== undefined && ids.has(r.vmid) && r.status === 'running') {
-      usage.cpu += (r.cpu ?? 0) * (r.maxcpu ?? 0);
-      usage.mem += r.mem ?? 0;
-      usage.maxMem += r.maxmem ?? 0;
-      usage.running += 1;
+  for (const [clusterId, ids] of byCluster) {
+    const client = await pve.getClient(clusterId);
+    const res = await client.get<{
+      data: Array<{ type: string; vmid?: number; status?: string; cpu?: number; maxcpu?: number; mem?: number; maxmem?: number }>;
+    }>('/cluster/resources');
+
+    for (const r of res.data.data) {
+      if ((r.type === 'qemu' || r.type === 'lxc') && r.vmid !== undefined && ids.has(r.vmid) && r.status === 'running') {
+        usage.cpu += (r.cpu ?? 0) * (r.maxcpu ?? 0);
+        usage.mem += r.mem ?? 0;
+        usage.maxMem += r.maxmem ?? 0;
+        usage.running += 1;
+      }
     }
   }
   usage.cpu = Math.round(usage.cpu * 100) / 100;
@@ -1312,7 +1342,7 @@ export async function destroyVm(vm: VirtualMachine): Promise<void> {
   const currentVm = await syncVmNode(vm).catch(() => vm);
   markVmIdDeleted(currentVm.proxmoxVmId);
   try {
-    const client = await pve.getClient();
+    const client = await pve.getClient(currentVm.clusterId);
     await stopAndDeleteProxmoxVm(currentVm.proxmoxNode, currentVm.proxmoxVmId, client, kindOf(currentVm));
   } catch (err) {
     const msg = pve.pveMessage(err);
@@ -1343,7 +1373,7 @@ export async function rebuildVm(
   vm: VirtualMachine,
   source: RebuildSource,
 ): Promise<VirtualMachine> {
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
   const current = await syncVmNode(vm);
   const vmid = current.proxmoxVmId;
   const isolate = (await getConfig('isolation_enabled')) !== 'false';
@@ -1525,7 +1555,7 @@ export async function restartVm(vm: VirtualMachine): Promise<void> {
  */
 export async function pauseVm(vm: VirtualMachine): Promise<void> {
   if (kindOf(vm) === 'lxc') throw new Error('Containers (LXC) cannot be paused');
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
   const currentVm = await syncVmNode(vm);
   await pve.suspendVm(currentVm.proxmoxNode, currentVm.proxmoxVmId, client);
 }
@@ -1533,7 +1563,7 @@ export async function pauseVm(vm: VirtualMachine): Promise<void> {
 /** Resume a paused VM. QEMU-only, the counterpart of {@link pauseVm}. */
 export async function resumeVm(vm: VirtualMachine): Promise<void> {
   if (kindOf(vm) === 'lxc') throw new Error('Containers (LXC) cannot be paused');
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
   const currentVm = await syncVmNode(vm);
   // Resuming is a power-ON: gate on the OWNER's window (a share-holder whose
   // own access is fine must not be able to revive a suspended tenant's guest).
@@ -1564,7 +1594,7 @@ export function generateGuestPassword(): string {
  */
 export async function resetGuestPassword(vm: VirtualMachine, username: string): Promise<string> {
   if (kindOf(vm) === 'lxc') throw new Error('Password reset needs the QEMU guest agent — containers are not supported');
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
   const currentVm = await syncVmNode(vm);
   const password = generateGuestPassword();
   await pve.setGuestUserPassword(currentVm.proxmoxNode, currentVm.proxmoxVmId, username, password, client);
@@ -1585,7 +1615,7 @@ export async function addGuestSshKey(vm: VirtualMachine, username: string, publi
   // Same shape check as saved keys / cloud-init: single line, OpenSSH format —
   // the authorized_keys-injection guard (a multi-line paste smuggles extra keys).
   if (!isValidPublicKey(key)) throw new Error("That doesn't look like an OpenSSH public key");
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
   const current = await syncVmNode(vm);
   await pve.injectGuestSshKey(current.proxmoxNode, current.proxmoxVmId, username, key, client);
 
@@ -1627,7 +1657,7 @@ export async function enterRescue(vm: VirtualMachine): Promise<VirtualMachine> {
   const iso = await getConfig('rescue_iso');
   if (!iso) throw new Error('No rescue ISO is configured — an admin can set one under Admin → Settings');
 
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
   const current = await syncVmNode(vm);
   const cfg = await pve.getVmConfig(current.proxmoxNode, current.proxmoxVmId, client);
   const snap: pve.RescueSnapshot = { boot: cfg['boot'] ?? null, ide3: cfg['ide3'] ?? null };
@@ -1653,7 +1683,7 @@ export async function exitRescue(vm: VirtualMachine): Promise<VirtualMachine> {
   if (!vm.rescueBoot) throw new Error('Not in rescue mode');
   const snap = JSON.parse(vm.rescueBoot) as pve.RescueSnapshot;
 
-  const client = await pve.getClient();
+  const client = await pve.getClient(vm.clusterId);
   const current = await syncVmNode(vm);
   const status = await pve.getVmStatus(current.proxmoxNode, current.proxmoxVmId, client).catch(() => null);
   if (status?.status === 'running') {
@@ -1789,9 +1819,24 @@ export async function getStoragePinningReport(): Promise<StoragePinningReport> {
  * Automatically discovers and adopts pre-existing Proxmox QEMU VMs and LXC containers
  * into Proxima, mapping unmanaged Proxmox guests to the administrator account.
  */
-export async function syncExistingProxmoxInfrastructure(adminUserId: string): Promise<{ imported: number; totalDiscovered: number }> {
-  const client = await pve.getClient();
-  const resourcesRes = await client.get<{ data: Array<{ vmid?: number; name?: string; type?: string; node?: string; status?: string; maxcpu?: number; maxmem?: number; maxdisk?: number; template?: number }> }>('/cluster/resources?type=vm');
+async function syncClusterInfrastructure(
+  adminUserId: string,
+  clusterId: string,
+): Promise<{ imported: number; totalDiscovered: number }> {
+  const client = await pve.getClient(clusterId);
+  const resourcesRes = await client.get<{
+    data: Array<{
+      vmid?: number;
+      name?: string;
+      type?: string;
+      node?: string;
+      status?: string;
+      maxcpu?: number;
+      maxmem?: number;
+      maxdisk?: number;
+      template?: number;
+    }>;
+  }>('/cluster/resources?type=vm');
   const discovered = (resourcesRes.data?.data || []).filter(
     (r) => r.vmid && !r.template && !recentlyDeletedVmIds.has(r.vmid),
   );
@@ -1800,8 +1845,10 @@ export async function syncExistingProxmoxInfrastructure(adminUserId: string): Pr
     return { imported: 0, totalDiscovered: 0 };
   }
 
-  // Get all currently registered VM IDs in Proxima
-  const existingVms = await prisma.virtualMachine.findMany({ select: { id: true, proxmoxVmId: true, status: true, proxmoxNode: true } });
+  const existingVms = await prisma.virtualMachine.findMany({
+    where: { clusterId },
+    select: { id: true, proxmoxVmId: true, status: true, proxmoxNode: true },
+  });
   const registeredVmMap = new Map(existingVms.map((v) => [v.proxmoxVmId, v]));
 
   let importedCount = 0;
@@ -1815,13 +1862,15 @@ export async function syncExistingProxmoxInfrastructure(adminUserId: string): Pr
     if (registeredVmMap.has(res.vmid)) {
       const existing = registeredVmMap.get(res.vmid)!;
       if (existing.status !== initialStatus || existing.proxmoxNode !== (res.node || existing.proxmoxNode)) {
-        await prisma.virtualMachine.update({
-          where: { id: existing.id },
-          data: {
-            status: initialStatus,
-            proxmoxNode: res.node || existing.proxmoxNode,
-          },
-        }).catch(() => undefined);
+        await prisma.virtualMachine
+          .update({
+            where: { id: existing.id },
+            data: {
+              status: initialStatus,
+              proxmoxNode: res.node || existing.proxmoxNode,
+            },
+          })
+          .catch(() => undefined);
       }
       continue;
     }
@@ -1834,6 +1883,7 @@ export async function syncExistingProxmoxInfrastructure(adminUserId: string): Pr
     await prisma.virtualMachine.create({
       data: {
         userId: adminUserId,
+        clusterId,
         name: vmName,
         cpu: cpuCores,
         ram: ramMb,
@@ -1851,5 +1901,62 @@ export async function syncExistingProxmoxInfrastructure(adminUserId: string): Pr
   }
 
   return { imported: importedCount, totalDiscovered: discovered.length };
+}
+
+/** Discover guests on every enabled Proxmox cluster and adopt new ones into Proxima. */
+export async function syncExistingProxmoxInfrastructure(
+  adminUserId: string,
+  clusterId?: string,
+): Promise<{
+  imported: number;
+  totalDiscovered: number;
+  clusters: Array<{ clusterId: string; name: string; imported: number; totalDiscovered: number; error?: string }>;
+}> {
+  const targets = clusterId
+    ? (await listClusters(true)).filter((c) => c.id === clusterId && c.enabled)
+    : (await listClusters(false));
+
+  if (targets.length === 0) {
+    throw new Error('No enabled Proxmox clusters are configured');
+  }
+
+  let imported = 0;
+  let totalDiscovered = 0;
+  const clusters: Array<{
+    clusterId: string;
+    name: string;
+    imported: number;
+    totalDiscovered: number;
+    error?: string;
+  }> = [];
+
+  const outcomes = await Promise.all(
+    targets.map(async (cluster) => {
+      try {
+        const r = await syncClusterInfrastructure(adminUserId, cluster.id);
+        return { cluster, r, error: undefined as string | undefined };
+      } catch (err) {
+        return {
+          cluster,
+          r: { imported: 0, totalDiscovered: 0 },
+          error: err instanceof Error ? err.message : 'Sync failed',
+        };
+      }
+    }),
+  );
+
+  for (const { cluster, r, error } of outcomes) {
+    imported += r.imported;
+    totalDiscovered += r.totalDiscovered;
+    clusters.push({
+      clusterId: cluster.id,
+      name: cluster.name,
+      imported: r.imported,
+      totalDiscovered: r.totalDiscovered,
+      ...(error ? { error } : {}),
+    });
+  }
+
+  return { imported, totalDiscovered, clusters };
 }
 

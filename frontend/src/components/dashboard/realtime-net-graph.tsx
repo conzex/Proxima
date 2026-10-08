@@ -36,6 +36,7 @@ export function RealtimeNetGraph() {
   useEffect(() => {
     let cancelled = false;
     const fetchStats = async () => {
+      if (document.visibilityState !== "visible") return;
       try {
         const res = await api.get<LiveStats>("/admin/live-stats");
         if (cancelled) return;
@@ -73,7 +74,7 @@ export function RealtimeNetGraph() {
     };
 
     fetchStats();
-    const interval = setInterval(fetchStats, 1000);
+    const interval = setInterval(fetchStats, 3000);
     return () => {
       cancelled = true;
       clearInterval(interval);

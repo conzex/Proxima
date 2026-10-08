@@ -19,59 +19,46 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [validated, setValidated] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
 
-  // The session lives in an httpOnly cookie, so we can't read it here — `/auth/me`
-  // (cookie sent automatically) is the source of truth.
+  // Session is httpOnly — validate in parallel (setup gate + profile) for fewer round trips.
   useEffect(() => {
     if (!hydrated) return;
     let active = true;
 
-    api
-      .get<{ setupComplete: boolean }>("/setup/status")
-      .then((setupRes) => {
+    (async () => {
+      try {
+        const [setupRes, meRes] = await Promise.all([
+          api.get<{ setupComplete: boolean }>("/setup/status"),
+          api.get<MeResponse>("/auth/me"),
+        ]);
         if (!active) return;
+
         if (!setupRes.data.setupComplete) {
-          // Drop stale cached profile so we don't spin forever waiting for `user`.
           clearAuth();
           setRedirecting(true);
           router.replace("/setup");
           return;
         }
-        api
-          .get<MeResponse>("/auth/me")
-          .then((res) => {
-            if (!active) return;
-            const u = res.data.user;
-            setUser({ id: u.id, email: u.email, role: u.role, displayName: u.displayName });
-            setMfaSetupRequired(!!u.mfaSetupRequired);
-            setValidated(true);
-          })
-          .catch(() => {
-            // Interceptor clears the cached user on 401; bounce to login.
-            if (active) {
-              setRedirecting(true);
-              router.replace("/login");
-            }
-          });
-      })
-      .catch(() => {
-        if (active) {
-          setRedirecting(true);
-          router.replace("/login");
-        }
-      });
+
+        const u = meRes.data.user;
+        setUser({ id: u.id, email: u.email, role: u.role, displayName: u.displayName });
+        setMfaSetupRequired(!!u.mfaSetupRequired);
+        setValidated(true);
+      } catch {
+        if (!active) return;
+        setRedirecting(true);
+        router.replace("/login");
+      }
+    })();
 
     return () => {
       active = false;
     };
   }, [hydrated, router, setUser, clearAuth, setMfaSetupRequired]);
 
-  // If a mid-session 401 clears the user (interceptor), bounce to login.
   useEffect(() => {
     if (hydrated && validated && !user) router.replace("/login");
   }, [hydrated, validated, user, router]);
 
-  // Admin-required 2FA not yet set up → corral the user to /security on every
-  // navigation until they enrol a method (the backend also blocks resource APIs).
   useEffect(() => {
     if (hydrated && validated && mfaSetupRequired && !pathname.startsWith("/security")) {
       router.replace("/security");
@@ -80,7 +67,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (redirecting) return null;
 
-  if (!hydrated || !validated || !user) {
+  const optimistic = hydrated && !!user && !validated;
+
+  if (!hydrated || (!validated && !optimistic) || !user) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 size-4 animate-spin" /> Loading Proxima…

@@ -215,9 +215,36 @@ model InviteToken {
   @@index([token])
 }
 
+// A registered Proxmox VE API endpoint (one cluster or standalone node). Proxima can
+// manage guests across multiple clusters from a single control plane.
+model ProxmoxCluster {
+  id              String   @id @default(cuid())
+  name            String
+  host            String
+  tokenId         String
+  tokenSecret     String   // AES-256-GCM ciphertext (encrypt/decrypt in app code)
+  verifySsl       Boolean  @default(true)
+  isDefault       Boolean  @default(false)
+  enabled         Boolean  @default(true)
+  defaultStorage  String?
+  defaultBridge   String?
+  isoStorage      String?
+  backupStorage   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  vms             VirtualMachine[]
+  templates       Template[]
+
+  @@unique([host, tokenId])
+  @@index([isDefault])
+  @@index([enabled])
+}
+
 model VirtualMachine {
   id            String    @id @default(cuid())
   userId        String
+  clusterId     String
   proxmoxVmId   Int
   proxmoxNode   String
   name          String
@@ -315,12 +342,15 @@ model VirtualMachine {
   updatedAt     DateTime  @updatedAt
 
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cluster       ProxmoxCluster @relation(fields: [clusterId], references: [id], onDelete: Restrict)
   matestates    MateState[]
   shares        VmShare[]
   passthroughRequests PassthroughRequest[]
   alertRules    AlertRule[]
 
+  @@unique([clusterId, proxmoxVmId])
   @@index([userId])
+  @@index([clusterId])
   @@index([proxmoxVmId])
 }
 
@@ -486,6 +516,7 @@ model AlertRule {
 // A published, cloneable OS build (maps to a Proxmox template VM).
 model Template {
   id            String    @id @default(cuid())
+  clusterId     String
   name          String
   description   String?
   os            String?                       // display label, e.g. "Debian 12"
@@ -516,7 +547,10 @@ model Template {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  @@unique([proxmoxVmId])
+  cluster       ProxmoxCluster @relation(fields: [clusterId], references: [id], onDelete: Restrict)
+
+  @@unique([clusterId, proxmoxVmId])
+  @@index([clusterId])
 }
 
 // Email-based password reset: the raw token is emailed; only its SHA-256 hash is

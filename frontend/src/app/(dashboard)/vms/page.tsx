@@ -395,13 +395,27 @@ export default function VmsPage() {
   const handleSyncInfra = async () => {
     setSyncingInfra(true);
     try {
-      const res = await api.post<{ ok: boolean; imported: number; totalDiscovered: number }>("/admin/infra/sync");
-      toast.success(`Infrastructure Sync: Imported ${res.data.imported} new guest(s) from Proxmox (${res.data.totalDiscovered} total found).`);
+      const res = await api.post<{
+        ok: boolean;
+        imported: number;
+        totalDiscovered: number;
+        clusters?: Array<{ name: string; imported: number; totalDiscovered: number; error?: string }>;
+      }>("/admin/infra/sync");
+      const parts =
+        res.data.clusters?.map((c) =>
+          c.error ? `${c.name}: failed` : `${c.name}: +${c.imported}/${c.totalDiscovered}`,
+        ) ?? [];
+      toast.success(
+        parts.length > 0
+          ? `Sync across clusters — ${parts.join("; ")}`
+          : `Imported ${res.data.imported} new guest(s) (${res.data.totalDiscovered} discovered).`,
+      );
       if (isAdmin) {
-        const gRes = await api.get<UserGroup[]>("/admin/all-vms");
+        const gRes = await api.get<UserGroup[]>("/admin/all-vms", { params: { refreshIps: true } });
         setGroups(gRes.data);
+      } else {
+        await reloadOwn();
       }
-      await reloadOwn();
     } catch (err) {
       toast.error(apiError(err));
     } finally {
@@ -461,7 +475,7 @@ export default function VmsPage() {
         {isAdmin && (
           <Button variant="outline" onClick={handleSyncInfra} disabled={syncingInfra}>
             {syncingInfra ? <Loader2 className="animate-spin" /> : <RotateCw />}
-            Sync Proxmox Infra
+            Sync now
           </Button>
         )}
         <Button render={<Link href="/vms/new" />}>

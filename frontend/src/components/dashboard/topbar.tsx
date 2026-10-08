@@ -50,22 +50,19 @@ function GlobalSearchBox() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch search targets
-  useEffect(() => {
-    let active = true;
+  const [searchLoaded, setSearchLoaded] = useState(false);
+
+  function ensureSearchIndex() {
+    if (searchLoaded) return;
+    setSearchLoaded(true);
     Promise.all([
       api.get<VirtualMachine[]>("/vms").catch(() => ({ data: [] })),
       api.get<Template[]>("/templates").catch(() => ({ data: [] })),
     ]).then(([vRes, tRes]) => {
-      if (active) {
-        setVms(vRes.data || []);
-        setTemplates(tRes.data || []);
-      }
+      setVms(vRes.data || []);
+      setTemplates(tRes.data || []);
     });
-    return () => {
-      active = false;
-    };
-  }, []);
+  }
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -137,8 +134,12 @@ function GlobalSearchBox() {
           type="text"
           placeholder="Search VMs, LXCs, templates, IPs..."
           value={query}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            ensureSearchIndex();
+            setOpen(true);
+          }}
           onChange={(e) => {
+            ensureSearchIndex();
             setQuery(e.target.value);
             setOpen(true);
           }}

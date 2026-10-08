@@ -12,11 +12,16 @@ import { QuotaCard } from "@/components/dashboard/quota-card";
 import { ClusterLoadCard } from "@/components/dashboard/cluster-load-card";
 import { LiveUsageCard } from "@/components/dashboard/live-usage-card";
 import { RequestQuotaDialog } from "@/components/dashboard/request-quota-dialog";
-import { RealtimeNetGraph } from "@/components/dashboard/realtime-net-graph";
 import { VmStatusBadge } from "@/components/vm/vm-status-badge";
+import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const RealtimeNetGraph = dynamic(
+  () => import("@/components/dashboard/realtime-net-graph").then((m) => m.RealtimeNetGraph),
+  { ssr: false, loading: () => null },
+);
 
 /** How often the admin dashboard refreshes live cluster capacity. */
 const CLUSTER_POLL_MS = 3000;
@@ -165,8 +170,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Realtime Network Traffic Graph replacing the owner list */}
-      <RealtimeNetGraph />
+      {isAdmin && <RealtimeNetGraph />}
     </div>
   );
 }

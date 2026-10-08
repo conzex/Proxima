@@ -20,6 +20,8 @@ Proxmox admin panel.
 
 **A product of [Conzex Global Private Limited](https://www.conzex.com).**
 
+Official repository: **https://github.com/conzex/Proxima** (proprietary — not open source).
+
 </div>
 
 ---

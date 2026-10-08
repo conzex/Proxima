@@ -68,6 +68,8 @@ export type VmCap = "view" | "power" | "console" | "configure" | "backups" | "id
 export interface VirtualMachine {
   id: string;
   userId: string;
+  clusterId: string;
+  clusterName?: string;
   proxmoxVmId: number;
   proxmoxNode: string;
   name: string;
@@ -406,6 +408,23 @@ export interface ProxmoxResources {
   bridges: Array<{ name: string }>;
   isoStorages: Array<{ name: string; type: string }>;
   backupStorages: Array<{ name: string; type: string }>;
+}
+
+export interface ProxmoxCluster {
+  id: string;
+  name: string;
+  host: string;
+  tokenId: string;
+  verifySsl: boolean;
+  isDefault: boolean;
+  enabled: boolean;
+  hasSecret: boolean;
+  defaultStorage: string | null;
+  defaultBridge: string | null;
+  isoStorage: string | null;
+  backupStorage: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UpdateCheck {

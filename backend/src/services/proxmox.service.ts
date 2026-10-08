@@ -185,22 +185,18 @@ export interface ProxmoxConnection {
   ca?: string;
 }
 
-/** Read the Proxmox connection config from SystemConfig. */
-export async function getConnectionConfig(): Promise<ProxmoxConnection> {
-  const [host, tokenId, tokenSecret, verifySslStr] = await Promise.all([
-    getConfig('proxmox_host'),
-    getConfig('proxmox_token_id'),
-    getConfig('proxmox_token_secret'),
-    getConfig('proxmox_verify_ssl'),
-  ]);
-  if (!host || !tokenId || !tokenSecret) throw new Error('Proxmox is not configured');
-  return { host, tokenId, tokenSecret, verifySsl: verifySslStr === 'true', ca: getProxmoxCa() };
+/** Read connection config for a cluster (default cluster when omitted). */
+export async function getConnectionConfig(clusterId?: string): Promise<ProxmoxConnection> {
+  const { getConnectionConfigForCluster, getDefaultClusterId } = await import('./proxmox-cluster.service.js');
+  const id = clusterId ?? (await getDefaultClusterId());
+  const c = await getConnectionConfigForCluster(id);
+  return c;
 }
 
-/** Build a client from the Proxmox connection config stored in SystemConfig. */
-export async function getClient(): Promise<AxiosInstance> {
-  const c = await getConnectionConfig();
-  return buildClient(c.host, c.tokenId, c.tokenSecret, c.verifySsl, c.ca);
+/** Proxmox API client for a cluster (default when clusterId omitted). */
+export async function getClient(clusterId?: string): Promise<AxiosInstance> {
+  const { getClientForCluster } = await import('./proxmox-cluster.service.js');
+  return getClientForCluster(clusterId);
 }
 
 /** Extract a human-readable message from a Proxmox/axios error. */
