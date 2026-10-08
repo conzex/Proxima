@@ -12,6 +12,8 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
 
+const apiProxyTarget = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:4000";
+
 const nextConfig: NextConfig = {
   // Produce a self-contained .next/standalone build for a small production image.
   output: "standalone",
@@ -20,6 +22,12 @@ const nextConfig: NextConfig = {
   // (which triggers the "multiple lockfiles" warning).
   turbopack: {
     root: __dirname,
+  },
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
+  // Dev: browser calls same-origin `/api` (avoids CORS + localhost vs 127.0.0.1 mismatches).
+  async rewrites() {
+    if (process.env.NODE_ENV === "production") return [];
+    return [{ source: "/api/:path*", destination: `${apiProxyTarget}/api/:path*` }];
   },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

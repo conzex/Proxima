@@ -10,6 +10,7 @@ import {
   completeSetup,
   hasAdmin,
 } from '../services/setup.service.js';
+import { pveMessage } from '../services/proxmox.service.js';
 import { setAuthCookies } from '../lib/cookies.js';
 import { authLimiter } from '../middleware/rate-limit.js';
 
@@ -101,7 +102,7 @@ router.post('/proxmox/test', async (_req: Request, res: Response) => {
     const result = await testProxmoxConnection();
     res.json(result);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Connection failed';
+    const msg = pveMessage(err);
     res.status(502).json({ connected: false, error: msg });
   }
 });
@@ -113,8 +114,7 @@ router.get('/proxmox/resources', async (_req: Request, res: Response) => {
     const resources = await getProxmoxResources();
     res.json(resources);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Failed to fetch resources';
-    res.status(502).json({ error: msg });
+    res.status(502).json({ error: pveMessage(err) });
   }
 });
 

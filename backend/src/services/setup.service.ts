@@ -69,7 +69,8 @@ export async function saveProxmoxConfig(data: {
   tokenSecret: string;
   verifySsl: boolean;
 }): Promise<void> {
-  await setConfig('proxmox_host', data.host);
+  const host = data.host.trim().replace(/\/+$/, '');
+  await setConfig('proxmox_host', host);
   await setConfig('proxmox_token_id', data.tokenId);
   await setConfig('proxmox_token_secret', data.tokenSecret, true);
   await setConfig('proxmox_verify_ssl', String(data.verifySsl));

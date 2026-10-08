@@ -89,7 +89,7 @@ export default function SetupLayout({ children }: { children: React.ReactNode })
         <ThemeToggle />
       </div>
       <div className="mb-8 flex items-center justify-center">
-        <BrandLogo showText={false} imageClassName="h-12 max-h-16" />
+        <BrandLogo />
       </div>
 
       <ol className="mb-8 flex items-center gap-2">

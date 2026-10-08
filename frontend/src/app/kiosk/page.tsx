@@ -13,7 +13,6 @@ import { KioskCommandCenter } from "@/components/kiosk/command-center";
 import { KioskActivityList } from "@/components/kiosk/activity-list";
 import { KioskUnlockDialog } from "@/components/kiosk/unlock-dialog";
 
-import { BrandIcon } from "@/components/brand-logo";
 
 const FAST_MS = 1000; // cluster + live VM stats
 const GROUPS_MS = 5000; // VM inventory (rarely changes)
@@ -274,7 +273,6 @@ export default function KioskPage() {
       {/* Header */}
       <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b px-4">
         <div className="flex items-center gap-3">
-          <BrandIcon size={36} />
           <div className="leading-tight">
             <div className="text-base font-semibold">
               Proxima <span className="text-muted-foreground">· Command Center</span>

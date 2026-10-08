@@ -13,9 +13,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const hydrated = useHydrated();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const clearAuth = useAuthStore((s) => s.clear);
   const mfaSetupRequired = useAuthStore((s) => s.mfaSetupRequired);
   const setMfaSetupRequired = useAuthStore((s) => s.setMfaSetupRequired);
   const [validated, setValidated] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
 
   // The session lives in an httpOnly cookie, so we can't read it here — `/auth/me`
   // (cookie sent automatically) is the source of truth.
@@ -28,6 +30,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       .then((setupRes) => {
         if (!active) return;
         if (!setupRes.data.setupComplete) {
+          // Drop stale cached profile so we don't spin forever waiting for `user`.
+          clearAuth();
+          setRedirecting(true);
           router.replace("/setup");
           return;
         }
@@ -42,17 +47,23 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           })
           .catch(() => {
             // Interceptor clears the cached user on 401; bounce to login.
-            if (active) router.replace("/login");
+            if (active) {
+              setRedirecting(true);
+              router.replace("/login");
+            }
           });
       })
       .catch(() => {
-        if (active) router.replace("/login");
+        if (active) {
+          setRedirecting(true);
+          router.replace("/login");
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [hydrated, router, setUser, setMfaSetupRequired]);
+  }, [hydrated, router, setUser, clearAuth, setMfaSetupRequired]);
 
   // If a mid-session 401 clears the user (interceptor), bounce to login.
   useEffect(() => {
@@ -66,6 +77,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
       router.replace("/security");
     }
   }, [hydrated, validated, mfaSetupRequired, pathname, router]);
+
+  if (redirecting) return null;
 
   if (!hydrated || !validated || !user) {
     return (

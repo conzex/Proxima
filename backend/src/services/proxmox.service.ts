@@ -206,10 +206,47 @@ export async function getClient(): Promise<AxiosInstance> {
 /** Extract a human-readable message from a Proxmox/axios error. */
 export function pveMessage(err: unknown): string {
   if (err instanceof AxiosError) {
-    const data = err.response?.data as { errors?: Record<string, string>; message?: string } | undefined;
-    if (data?.errors) return Object.values(data.errors).join('; ');
+    const status = err.response?.status;
+    const raw = err.response?.data;
+    if (typeof raw === 'string' && raw.trim()) {
+      const text = raw.replace(/\s+/g, ' ').trim();
+      return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+    }
+    const data = raw as { errors?: Record<string, string>; message?: string } | undefined;
+    if (data?.errors) {
+      const joined = Object.values(data.errors).join('; ');
+      if (/no such file.*\/json\//i.test(joined)) {
+        return (
+          `${joined} — Proxima calls Proxmox at \`/api2/json/*\`. Use the direct API URL ` +
+          '(usually `https://<proxmox-host>:8006`), not a dashboard-only reverse proxy path.'
+        );
+      }
+      return joined;
+    }
     if (data?.message) return data.message;
-    if (err.response) return `Proxmox responded ${err.response.status}`;
+    if (status === 401) {
+      return 'Proxmox rejected the API token (401). Check the token ID and secret — they must match exactly what `pveum user token add` printed.';
+    }
+    if (status === 403) {
+      return 'Proxmox denied access (403). The token may lack permissions or be scoped to a path that excludes this API.';
+    }
+    if (status === 500) {
+      return 'Proxmox returned HTTP 500. Common causes: wrong token secret, a reverse proxy in front of Proxmox not forwarding `/api2`, or the host URL pointing at a non-Proxmox service.';
+    }
+    if (status) return `Proxmox responded ${status}`;
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+      return `Cannot reach the Proxmox host (${err.code}). Check the URL, firewall, and that the API port (usually 8006) is open from this machine.`;
+    }
+    if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message)) {
+      return 'Timed out connecting to Proxmox. Check network path and increase PROXMOX_TIMEOUT_MS if the cluster is slow.';
+    }
+    if (
+      err.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+      err.code === 'DEPTH_ZERO_SELF_SIGNED_CERT' ||
+      err.code === 'SELF_SIGNED_CERT_IN_CHAIN'
+    ) {
+      return 'TLS certificate verification failed. Disable “Verify TLS certificate” for self-signed certs, or upload your CA in admin settings.';
+    }
     return err.message;
   }
   return err instanceof Error ? err.message : 'Unknown Proxmox error';

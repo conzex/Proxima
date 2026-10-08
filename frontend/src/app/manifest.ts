@@ -1,9 +1,6 @@
 import type { MetadataRoute } from "next";
 import { siteConfig } from "@/lib/site";
 
-// Web App Manifest — makes Proxima installable ("Add to Home Screen" /
-// install as a desktop app) with proper branding. Icons live in /public so
-// they resolve at stable, literal paths. Colors match the dark-slate app chrome.
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: siteConfig.name,
@@ -14,10 +11,5 @@ export default function manifest(): MetadataRoute.Manifest {
     display: "standalone",
     background_color: "#ffffff",
     theme_color: "#035ffd",
-    icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-    ],
   };
 }

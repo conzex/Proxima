@@ -57,8 +57,38 @@ app.use('/api/ide/:id/llm', express.json({ limit: '15mb' }));
 app.use('/api/ide', ideGatewayRoutes);
 
 app.use(helmet());
+const configuredFrontend = process.env.FRONTEND_URL || 'http://localhost:3000';
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin(origin, callback) {
+    // Non-browser clients (curl, health checks) omit Origin.
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (origin === configuredFrontend) {
+      callback(null, true);
+      return;
+    }
+    // Local dev: allow localhost ↔ 127.0.0.1 port swaps (common when curl works on 127.0.0.1 only).
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        const allowed = new URL(configuredFrontend);
+        const request = new URL(origin);
+        const loopback =
+          (allowed.hostname === 'localhost' || allowed.hostname === '127.0.0.1') &&
+          (request.hostname === 'localhost' || request.hostname === '127.0.0.1') &&
+          allowed.port === request.port &&
+          allowed.protocol === request.protocol;
+        if (loopback) {
+          callback(null, true);
+          return;
+        }
+      } catch {
+        // fall through
+      }
+    }
+    callback(null, false);
+  },
   credentials: true,
 }));
 app.use(cookieParser());

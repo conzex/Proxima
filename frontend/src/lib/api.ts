@@ -4,7 +4,8 @@ import axios, { AxiosError } from "axios";
 import { getCsrfToken, useAuthStore } from "./auth-store";
 
 /** Base URL of the Proxima API (also used for full-page redirects like SSO). */
-export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
+/** Same-origin `/api` in dev (Next rewrite) and prod (Express serves the UI + API). */
+export const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 export const api = axios.create({
   baseURL: apiBaseUrl,
@@ -38,6 +39,13 @@ export function apiError(err: unknown): string {
     const data = err.response?.data as { error?: string; details?: unknown } | undefined;
     if (data?.error) return data.error;
     if (err.code === "ERR_NETWORK") return "Cannot reach the Proxima API. Is the backend running?";
+    const status = err.response?.status;
+    if (status === 502) {
+      return "Proxima could not reach Proxmox. Check host URL, token, and network from the machine running the API.";
+    }
+    if (status === 500 && data && typeof data === "object" && !("error" in data)) {
+      return "The Proxima API returned an unexpected error. Check backend logs.";
+    }
     return err.message;
   }
   return err instanceof Error ? err.message : "Unexpected error";
